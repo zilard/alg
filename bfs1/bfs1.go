@@ -17,6 +17,20 @@ type Graph struct {
 }
 
 
+func (a *AdjacencyRecord) Iterate() <-chan int {
+        ch := make(chan int)
+        go func() {
+                for _, val := range a.adjacencyArray {
+                        ch <- val
+                }
+                close(ch)
+        }()
+        return ch
+}
+
+
+
+
 
 // New Graph creates an empty Graph with v vertices
 func NewGraph() *Graph {
@@ -25,6 +39,23 @@ func NewGraph() *Graph {
         return g
 
 }
+
+
+// Adj returns vertices adjacent to v
+func (g *Graph) Adj(v int) <-chan int {
+        ch := make(chan int)
+        go func() {
+                if adj, ok := g.Adjacencies[v]; ok {
+                        for val := range adj.Iterate() {
+                                ch <- val
+                        }
+                }
+                close(ch)
+        }()
+        return ch
+}
+
+
 
 
 //AddEdge add an edge v-w
@@ -78,6 +109,11 @@ type BFSPath struct {
         G      *Graph
 }
 
+
+type Node struct {
+        Next  *Node
+        Value interface{}
+}
 
 
 
@@ -163,28 +199,6 @@ func (q *queueLinkedList) Iterate() <-chan interface{} {
 
 
 
-
-
-
-
-
-
-func NewBFSPath(g *Graph, source int) *BFSPath {
-        bfsPath := &BFSPath{
-                DistTo: make(map[int]int),
-                EdgeTo: make(map[int]int),
-                G:      g,
-                Path:   NewQueueLinkedList(),
-                Source: source,
-        }
-        bfsPath.bfs(source)
-        return bfsPath
-}
-
-
-
-
-
 func (b *BFSPath) bfs(v int) {
         queue := NewQueueLinkedList()
         b.DistTo[v] = 0
@@ -204,6 +218,136 @@ func (b *BFSPath) bfs(v int) {
                 }
         }
 }
+
+
+
+func NewBFSPath(g *Graph, source int) *BFSPath {
+        bfsPath := &BFSPath{
+                DistTo: make(map[int]int),
+                EdgeTo: make(map[int]int),
+                G:      g,
+                Path:   NewQueueLinkedList(),
+                Source: source,
+        }
+        bfsPath.bfs(source)
+        return bfsPath
+}
+
+
+
+
+
+type Stack interface {
+        Push(item interface{})
+        Pop() interface{}
+        IsEmpty() bool
+        Size() int
+        Iterate() <-chan interface{}
+}
+
+
+
+type stackArray struct {
+        Items []interface{}
+        Index int
+}
+
+func NewStackArray() Stack {
+        obj := &stackArray{}
+        obj.Items = make([]interface{}, 0)
+        return obj
+}
+
+
+func (s *stackArray) Push(item interface{}) {
+        s.Resize()
+        s.Items[s.Index] = item
+        s.Index++
+}
+
+func (s *stackArray) Pop() interface{} {
+        if !s.IsEmpty() {
+                item := s.Items[s.Index-1]
+                s.Index--
+                s.Resize()
+                return item
+        }
+
+        return 0
+}
+
+func (s *stackArray) Resize() {
+        if cap(s.Items)/4 > s.Index {
+                s.Items = s.Items[0 : cap(s.Items)/2]
+        } else if cap(s.Items) == s.Index {
+                c := make([]interface{}, 1+s.Index*2)
+                copy(c, s.Items)
+                s.Items = c
+        }
+}
+
+func (s *stackArray) Iterate() <-chan interface{} {
+        ch := make(chan interface{})
+        go func() {
+                for {
+                        if s.IsEmpty() {
+                                break
+                        }
+                        ch <- s.Pop()
+                }
+                close(ch)
+
+        }()
+        return ch
+}
+
+func (s *stackArray) IsEmpty() bool {
+        return s.Size() == 0
+}
+
+func (s *stackArray) Size() int {
+        return s.Index
+}
+
+
+
+
+
+
+
+
+
+
+
+
+func (b *BFSPath) HasPathTo(v int) bool {
+        _, ok := b.DistTo[v]
+        return ok
+}
+
+
+
+
+
+
+// PathTo return a the shortest path between the vertice and the source.
+func (b *BFSPath) PathTo(v int) <-chan interface{} {
+        stack := NewStackArray()
+        if b.HasPathTo(v) {
+                for x := v; x != b.Source; x = b.EdgeTo[x] {
+                        stack.Push(x)
+                }
+                stack.Push(b.Source)
+        }
+        return stack.Iterate()
+}
+
+func (b *BFSPath) BFS() <-chan interface{} {
+        return b.Path.Iterate()
+}
+
+
+
 
 
 
@@ -250,6 +394,19 @@ func main() {
 	for k, v := range g.Adjacencies {
 		fmt.Printf("key: %v\n", k)
 		fmt.Printf("val: %v\n\n", v)
+        }
+
+	bfs := NewBFSPath(g, 0)
+
+        nbVertices := 0
+        for _ = range bfs.PathTo(3) {
+                nbVertices++
+        }
+	fmt.Printf("0 - 3 nbVertices %v\n", nbVertices)
+
+
+        for x := range bfs.BFS() {
+                fmt.Println(x)
         }
 
 
